@@ -1,0 +1,20 @@
+[project]
+name = "ErisPulse-OneBot12Adapter"
+version = "1.0.0"
+description = "ErisPulse的OneBotV12协议适配模块，基线协议适配器"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { file = "LICENSE" }
+authors = [ { name = "wsu2059q", email = "wsu2059@qq.com" } ]
+dependencies = [
+    
+]
+
+[project.urls]
+"homepage" = "https://github.com/ErisPulse/ErisPulse-OneBot12Adapter"
+
+[project.entry-points."erispulse.adapter"]
+onebot12 = "OneBot12Adapter:OneBot12Adapter"
+
+[tool.setuptools]
+packages = ["OneBot12Adapter"]
