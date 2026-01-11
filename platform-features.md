@@ -277,6 +277,7 @@ OneBot12适配器采用异步非阻塞设计：
 {
     "type": "message",
     "detail_type": "private",
+    "self": {"user_id": "123456"},  // 发送事件的账户ID（标准字段）
     "platform": "onebot12",
     // ... 其他事件字段
 }
