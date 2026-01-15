@@ -10,8 +10,9 @@ dependencies = [
     
 ]
 
-classifiers = [
-    "Framework :: ErisPulse :: Adapter"
+keywords = [
+    "erispulse",
+    "erispulse-adapter"
 ]
 
 [project.urls]
