@@ -137,21 +137,52 @@ await onebot12.Send.To("user", 123456).Audio("http://example.com/audio.ogg")
 await onebot12.Send.To("user", 123456).Video("http://example.com/video.mp4")
 ```
 
-### 交互消息
+### 链式修饰方法
 
-#### @消息
+#### @用户
 ```python
-await onebot12.Send.To("group", 123456).Mention(789012, "用户名")
+# @单个用户
+await onebot12.Send.To("group", 123456).At(789012).Text("你好！")
+
+# @多个用户
+await onebot12.Send.To("group", 123456).At(789012).At(789013).Text("大家你好！")
+
+# @全体成员
+await onebot12.Send.To("group", 123456).AtAll().Text("全体通知！")
 ```
 
 #### 回复消息
 ```python
-# 仅回复，不附加内容
-await onebot12.Send.To("group", 123456).Reply("msg_id_123")
+# 回复某条消息
+await onebot12.Send.To("group", 123456).Reply("msg_id_123").Text("这是回复内容")
 
-# 回复并附加内容
-await onebot12.Send.To("group", 123456).Reply("msg_id_123", "这是回复内容")
+# 组合使用@和回复
+await onebot12.Send.To("group", 123456).Reply("msg_id_123").At(789012).Text("回复并@你")
 ```
+
+### 原始消息发送
+
+#### 发送OneBot12原始格式消息
+```python
+# 发送单个消息段
+await onebot12.Send.To("group", 123456).Raw_ob12({
+    "type": "text",
+    "data": {"text": "Hello"}
+})
+
+# 发送多个消息段
+await onebot12.Send.To("group", 123456).Raw_ob12([
+    {"type": "text", "data": {"text": "你好"}},
+    {"type": "image", "data": {"file_id": "image_id"}}
+])
+
+# 原始消息配合链式修饰符
+await onebot12.Send.To("group", 123456).Reply("msg_id_123").At(789012).Raw_ob12([
+    {"type": "text", "data": {"text": "这是原始消息"}}
+])
+```
+
+### 交互消息
 
 #### 表情包/贴纸
 ```python
@@ -357,20 +388,30 @@ if "test" in accounts:
 
 ## 支持的消息类型及对应方法
 
-| 方法名 | 参数说明 | 用途 |
-|--------|----------|------|
-| `.Text(text: str)` | 发送纯文本消息 | 基础消息类型 |
-| `.Image(file: str/bytes, filename: str)` | 发送图片消息 | 支持URL、Base64或bytes |
-| `.Audio(file: str/bytes, filename: str)` | 发送音频消息 | 支持标准音频格式 |
-| `.Video(file: str/bytes, filename: str)` | 发送视频消息 | 支持标准视频格式 |
-| `.Mention(user_id: str/int, user_name: str)` | 发送@消息 | 群聊@功能 |
-| `.Reply(message_id: str/int, content: str)` | 发送回复消息 | 消息回复功能 |
-| `.Sticker(file_id: str)` | 发送表情包/贴纸 | 表情包功能 |
-| `.Location(lat: float, lon: float, title: str, content: str)` | 发送位置 | 位置分享 |
-| `.Raw(message_list: List[Dict])` | 发送原生消息段 | 自定义消息内容 |
-| `.Recall(message_id: str/int)` | 撤回指定消息 | 消息管理 |
-| `.Edit(message_id: str/int, content: Union[str, List[Dict]])` | 编辑消息 | 消息编辑 |
-| `.Batch(target_ids: List[str], message: Union[str, List[Dict]], target_type: str)` | 批量发送消息 | 群发功能 |
+### 消息发送方法
+
+| 方法名 | 参数说明 | 返回值 | 用途 |
+|--------|----------|--------|------|
+| `.Text(text: str)` | 发送纯文本消息 | `asyncio.Task` | 基础消息类型 |
+| `.Image(file: str/bytes, filename: str)` | 发送图片消息 | `asyncio.Task` | 支持URL、Base64或bytes |
+| `.Audio(file: str/bytes, filename: str)` | 发送音频消息 | `asyncio.Task` | 支持标准音频格式 |
+| `.Video(file: str/bytes, filename: str)` | 发送视频消息 | `asyncio.Task` | 支持标准视频格式 |
+| `.Sticker(file_id: str)` | 发送表情包/贴纸 | `asyncio.Task` | 表情包功能 |
+| `.Location(lat: float, lon: float, title: str, content: str)` | 发送位置 | `asyncio.Task` | 位置分享 |
+| `.Raw_ob12(message: Dict/List[Dict], **kwargs)` | 发送OneBot12原始格式消息 | `asyncio.Task` | 自定义消息内容 |
+| `.Recall(message_id: str/int)` | 撤回指定消息 | `asyncio.Task` | 消息管理 |
+| `.Edit(message_id: str/int, content: Union[str, List[Dict]])` | 编辑消息 | `asyncio.Task` | 消息编辑 |
+| `.Batch(target_ids: List[str], message: Union[str, List[Dict]], target_type: str)` | 批量发送消息 | `List[Task]` | 群发功能 |
+
+### 链式修饰方法（支持链式调用）
+
+| 方法名 | 参数说明 | 返回值 | 用途 |
+|--------|----------|--------|------|
+| `.At(user_id: str/int)` | @用户ID | `self` | 群聊@功能（可多次调用） |
+| `.AtAll()` | @全体成员 | `self` | 群聊@全体功能 |
+| `.Reply(message_id: str/int)` | 回复消息ID | `self` | 消息回复功能 |
+
+> **链式调用示例**：`Send.To("group", 123456).At(789).Reply("msg123").Text("文本")`
 
 ---
 

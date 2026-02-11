@@ -1,6 +1,6 @@
 [project]
 name = "ErisPulse-OneBot12Adapter"
-version = "1.0.2"
+version = "1.1.0"
 description = "ErisPulse的OneBotV12协议适配模块，基线协议适配器"
 readme = "README.md"
 requires-python = ">=3.10"

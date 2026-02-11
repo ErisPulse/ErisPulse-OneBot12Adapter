@@ -38,7 +38,92 @@ class OneBot12Adapter(sdk.BaseAdapter):
     class Send(sdk.BaseAdapter.Send):
         """消息发送类 - OneBot12标准"""
         
+        def __init__(self, adapter, target_type=None, target_id=None, account_id=None):
+            """初始化Send类，设置链式调用状态"""
+            super().__init__(adapter, target_type, target_id, account_id)
+            self._at_user_ids = []        # @用户ID列表
+            self._at_all = False          # 是否@全体
+            self._reply_message_id = None # 回复的消息ID
+        
+        def At(self, user_id: Union[str, int]):
+            """
+            @用户（可多次调用，支持链式）
+            
+            :param user_id: 用户ID
+            :return: self 支持链式调用
+            """
+            self._at_user_ids.append(str(user_id))
+            return self
+        
+        def AtAll(self):
+            """
+            @全体成员（支持链式）
+            
+            :return: self 支持链式调用
+            """
+            self._at_all = True
+            return self
+        
+        def Reply(self, message_id: Union[str, int]):
+            """
+            回复消息（支持链式）
+            
+            :param message_id: 要回复的消息ID
+            :return: self 支持链式调用
+            """
+            self._reply_message_id = str(message_id)
+            return self
+        
+        def _build_message_content(self, content):
+            """
+            构建完整的消息内容，包含链式修饰符
+            
+            :param content: 基础消息内容
+            :return: 完整的消息段数组
+            """
+            message_segments = []
+            
+            # 如果设置了回复，先添加回复消息段
+            if self._reply_message_id:
+                message_segments.append({
+                    "type": "reply",
+                    "data": {"message_id": self._reply_message_id}
+                })
+            
+            # 添加@全体
+            if self._at_all:
+                message_segments.append({
+                    "type": "mention_all",
+                    "data": {}
+                })
+            
+            # 添加@用户
+            for user_id in self._at_user_ids:
+                message_segments.append({
+                    "type": "mention",
+                    "data": {"user_id": user_id}
+                })
+            
+            # 添加基础内容
+            if isinstance(content, dict):
+                message_segments.append(content)
+            elif isinstance(content, list):
+                message_segments.extend(content)
+            
+            return message_segments
+        
+        def _reset_chain_state(self):
+            """重置链式状态"""
+            self._at_user_ids = []
+            self._at_all = False
+            self._reply_message_id = None
+        
         def Text(self, text: str):
+            """发送文本消息"""
+            content = {"type": "text", "data": {"text": text}}
+            full_content = self._build_message_content(content)
+            self._reset_chain_state()
+            
             return asyncio.create_task(
                 self._adapter.call_api(
                     endpoint="send_message",
@@ -46,19 +131,23 @@ class OneBot12Adapter(sdk.BaseAdapter):
                     detail_type=self._get_detail_type(),
                     user_id=self._target_id if self._target_type == "user" else None,
                     group_id=self._target_id if self._target_type == "group" else None,
-                    content={"type": "text", "data": {"text": text}}
+                    content=full_content
                 )
             )
         
         def Image(self, file: Union[str, bytes], filename: str = "image.png"):
+            """发送图片消息"""
             data = {}
             if isinstance(file, bytes):
-                # 处理二进制图片数据
                 import base64
                 data["file_base64"] = base64.b64encode(file).decode('utf-8')
                 data["file_name"] = filename
             else:
                 data["file_id"] = file
+            
+            content = {"type": "image", "data": data}
+            full_content = self._build_message_content(content)
+            self._reset_chain_state()
             
             return asyncio.create_task(
                 self._adapter.call_api(
@@ -67,11 +156,12 @@ class OneBot12Adapter(sdk.BaseAdapter):
                     detail_type=self._get_detail_type(),
                     user_id=self._target_id if self._target_type == "user" else None,
                     group_id=self._target_id if self._target_type == "group" else None,
-                    content={"type": "image", "data": data}
+                    content=full_content
                 )
             )
         
         def Audio(self, file: Union[str, bytes], filename: str = "audio.ogg"):
+            """发送语音消息"""
             data = {}
             if isinstance(file, bytes):
                 import base64
@@ -80,6 +170,10 @@ class OneBot12Adapter(sdk.BaseAdapter):
             else:
                 data["file_id"] = file
             
+            content = {"type": "audio", "data": data}
+            full_content = self._build_message_content(content)
+            self._reset_chain_state()
+            
             return asyncio.create_task(
                 self._adapter.call_api(
                     endpoint="send_message",
@@ -87,11 +181,12 @@ class OneBot12Adapter(sdk.BaseAdapter):
                     detail_type=self._get_detail_type(),
                     user_id=self._target_id if self._target_type == "user" else None,
                     group_id=self._target_id if self._target_type == "group" else None,
-                    content={"type": "audio", "data": data}
+                    content=full_content
                 )
             )
         
         def Video(self, file: Union[str, bytes], filename: str = "video.mp4"):
+            """发送视频消息"""
             data = {}
             if isinstance(file, bytes):
                 import base64
@@ -100,6 +195,10 @@ class OneBot12Adapter(sdk.BaseAdapter):
             else:
                 data["file_id"] = file
             
+            content = {"type": "video", "data": data}
+            full_content = self._build_message_content(content)
+            self._reset_chain_state()
+            
             return asyncio.create_task(
                 self._adapter.call_api(
                     endpoint="send_message",
@@ -107,27 +206,12 @@ class OneBot12Adapter(sdk.BaseAdapter):
                     detail_type=self._get_detail_type(),
                     user_id=self._target_id if self._target_type == "user" else None,
                     group_id=self._target_id if self._target_type == "group" else None,
-                    content={"type": "video", "data": data}
+                    content=full_content
                 )
             )
         
-        def Mention(self, user_id: Union[str, int], user_name: str = None):
-            # OneBot12的mention应该作为消息段处理
-            return self._send_complex_message([
-                {"type": "mention", "data": {"user_id": str(user_id), "user_name": user_name or ""}}
-            ])
-        
-        def Reply(self, message_id: Union[str, int], content: str = None):
-            # OneBot12的回复消息
-            message_segments = [
-                {"type": "reply", "data": {"message_id": str(message_id)}}
-            ]
-            if content:
-                message_segments.append({"type": "text", "data": {"text": content}})
-            
-            return self._send_complex_message(message_segments)
-        
         def Location(self, latitude: float, longitude: float, title: str = "", content: str = ""):
+            """发送位置消息"""
             data = {
                 "latitude": latitude,
                 "longitude": longitude
@@ -137,6 +221,10 @@ class OneBot12Adapter(sdk.BaseAdapter):
             if content:
                 data["content"] = content
             
+            content = {"type": "location", "data": data}
+            full_content = self._build_message_content(content)
+            self._reset_chain_state()
+            
             return asyncio.create_task(
                 self._adapter.call_api(
                     endpoint="send_message",
@@ -144,12 +232,16 @@ class OneBot12Adapter(sdk.BaseAdapter):
                     detail_type=self._get_detail_type(),
                     user_id=self._target_id if self._target_type == "user" else None,
                     group_id=self._target_id if self._target_type == "group" else None,
-                    content={"type": "location", "data": data}
+                    content=full_content
                 )
             )
         
         def Sticker(self, file_id: str):
             """发送表情包/贴纸"""
+            content = {"type": "sticker", "data": {"file_id": file_id}}
+            full_content = self._build_message_content(content)
+            self._reset_chain_state()
+            
             return asyncio.create_task(
                 self._adapter.call_api(
                     endpoint="send_message",
@@ -157,13 +249,45 @@ class OneBot12Adapter(sdk.BaseAdapter):
                     detail_type=self._get_detail_type(),
                     user_id=self._target_id if self._target_type == "user" else None,
                     group_id=self._target_id if self._target_type == "group" else None,
-                    content={"type": "sticker", "data": {"file_id": file_id}}
+                    content=full_content
                 )
             )
         
-        def Raw(self, message_segments: List[Dict]):
-            """发送原始OneBot12消息段列表"""
-            return self._send_complex_message(message_segments)
+        def Raw_ob12(self, message: Union[Dict, List[Dict]], **kwargs):
+            """
+            发送原始OneBot12格式消息（符合命名规范）
+            
+            :param message: OneBot12格式的消息段或消息段数组
+            :param kwargs: 额外参数（如target_type, target_id等，优先使用链式设置的值）
+            :return: asyncio.Task对象
+            """
+            # 确保message是列表格式
+            if isinstance(message, dict):
+                message = [message]
+            
+            # 应用链式修饰符
+            full_content = self._build_message_content(message)
+            self._reset_chain_state()
+            
+            # 使用链式设置的值或kwargs中的值
+            target_type = kwargs.get('target_type') or self._target_type
+            target_id = kwargs.get('target_id') or self._target_id
+            account_id = kwargs.get('account_id') or self._account_id
+            
+            # 确定detail_type
+            detail_type = "private" if target_type == "user" else "group" if target_type == "group" else kwargs.get('detail_type')
+            
+            return asyncio.create_task(
+                self._adapter.call_api(
+                    endpoint="send_message",
+                    account_id=account_id,
+                    detail_type=detail_type,
+                    user_id=target_id if target_type == "user" else None,
+                    group_id=target_id if target_type == "group" else None,
+                    content=full_content,
+                    **{k: v for k, v in kwargs.items() if k not in ['target_type', 'target_id', 'account_id', 'detail_type']}
+                )
+            )
         
         def Recall(self, message_id: Union[str, int]):
             """撤回消息"""
@@ -385,18 +509,22 @@ class OneBot12Adapter(sdk.BaseAdapter):
             raw_response = await asyncio.wait_for(future, timeout=self.default_timeout)
             self.logger.debug(f"账户 {account_name} (bot_id: {account.bot_id}) OneBot12 API响应: {raw_response}")
 
-            # OneBot12标准响应处理
+            # OneBot12标准响应处理（符合api-response.md规范）
+            message_id = ""
+            # 从data中提取message_id（OneBot12标准）
+            if isinstance(raw_response.get("data"), dict):
+                message_id = raw_response["data"].get("message_id", "")
+            
             standardized_response = {
                 "status": raw_response.get("status", "ok"),
                 "retcode": raw_response.get("retcode", 0),
                 "data": raw_response.get("data"),
+                "message_id": message_id,  # 必须字段，没有则为空字符串
                 "message": raw_response.get("message", ""),
-                "self": {"user_id": account.bot_id}  # 使用bot_id标识机器人账号
+                "onebot12_raw": raw_response  # 保存原始响应数据
             }
 
-            if "message_id" in raw_response:
-                standardized_response["message_id"] = raw_response["message_id"]
-
+            # 如果请求中包含echo，原样返回
             if "echo" in params:
                 standardized_response["echo"] = params["echo"]
 
@@ -411,8 +539,9 @@ class OneBot12Adapter(sdk.BaseAdapter):
                 "status": "failed",
                 "retcode": 33001,
                 "data": None,
+                "message_id": "",  # 超时失败时为空字符串
                 "message": f"账户 {account_name} (bot_id: {account.bot_id}) API调用超时: {endpoint}",
-                "self": {"user_id": account.bot_id}  # 使用bot_id标识机器人账号
+                "onebot12_raw": {}  # 保存原始响应（超时时为空）
             }
 
             if "echo" in params:
