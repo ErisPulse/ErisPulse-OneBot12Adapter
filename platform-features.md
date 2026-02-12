@@ -32,11 +32,40 @@ await onebot12.Send.To("group", group_id).Text("Hello World!")
 await onebot12.Send.To("group", group_id).Account("main").Text("来自主账户的消息")
 ```
 
+### 大小写不敏感调用
+
+所有发送方法和链式修饰方法均支持大小写不敏感调用，适配器会自动映射到正确的标准方法名：
+
+```python
+# 以下所有调用方式等价
+await onebot12.Send.To("user", 123).Text("hello")
+await onebot12.Send.To("user", 123).text("hello")
+await onebot12.Send.To("user", 123).TEXT("hello")
+
+# 链式修饰方法同样支持
+await onebot12.Send.To("group", 123).At(456).Text("hello")
+await onebot12.Send.To("group", 123).at(456).TEXT("hello")
+await onebot12.Send.To("group", 123).AT(456).text("hello")
+```
+
+### 不支持的方法调用
+
+当调用不存在的方法时，适配器会返回友好的文本提示，而不是抛出异常：
+
+```python
+# 调用不支持的方法
+result = await onebot12.Send.To("user", 123).UnsupportedMethod("test")
+
+# 返回的结果是发送的文本消息
+# 消息内容: [不支持的发送类型] 方法名: UnsupportedMethod, 参数: [args[0]: 'test']
+```
+
 ### 基础消息类型
 
 - `.Text(text: str)`：发送纯文本消息
 - `.Image(file: Union[str, bytes], filename: str = "image.png")`：发送图片消息（支持URL、Base64或bytes）
 - `.Audio(file: Union[str, bytes], filename: str = "audio.ogg")`：发送音频消息
+- `.Voice(file: Union[str, bytes], filename: str = "voice.ogg")`：发送语音消息（Audio的别名，兼容OneBot11）
 - `.Video(file: Union[str, bytes], filename: str = "video.mp4")`：发送视频消息
 
 ### 链式修饰方法（返回self支持链式调用）
@@ -65,6 +94,24 @@ await onebot12.Send.To("group", group_id).Account("main").Text("来自主账户�
 
 OneBot12适配器完全遵循OneBot12标准，事件格式无需转换，直接提交到框架。
 
+### 新增特性：原始事件类型字段
+
+符合 `standards/event-conversion.md` 规范，所有事件都会保留原始事件类型字段 `onebot12_raw_type`：
+
+```python
+{
+    "id": "event-id",
+    "type": "message",              # 事件类型
+    "onebot12_raw_type": "message", # 原始事件类型（与type相同）
+    "detail_type": "private",
+    "self": {"user_id": "bot-id"},
+    "user_id": "user-id",
+    "message": [{"type": "text", "data": {"text": "Hello"}}],
+    "alt_message": "Hello",
+    "time": 1234567890
+}
+```
+
 ### 消息事件 (Message Events)
 
 ```python
@@ -72,6 +119,7 @@ OneBot12适配器完全遵循OneBot12标准，事件格式无需转换，直接�
 {
     "id": "event-id",
     "type": "message",
+    "onebot12_raw_type": "message",
     "detail_type": "private",
     "self": {"user_id": "bot-id"},
     "user_id": "user-id",
@@ -84,6 +132,7 @@ OneBot12适配器完全遵循OneBot12标准，事件格式无需转换，直接�
 {
     "id": "event-id",
     "type": "message",
+    "onebot12_raw_type": "message",
     "detail_type": "group",
     "self": {"user_id": "bot-id"},
     "user_id": "user-id",
@@ -101,6 +150,7 @@ OneBot12适配器完全遵循OneBot12标准，事件格式无需转换，直接�
 {
     "id": "event-id",
     "type": "notice",
+    "onebot12_raw_type": "notice",
     "detail_type": "group_member_increase",
     "self": {"user_id": "bot-id"},
     "group_id": "group-id",
@@ -113,7 +163,8 @@ OneBot12适配器完全遵循OneBot12标准，事件格式无需转换，直接�
 # 群成员减少
 {
     "id": "event-id",
-    "type": "notice", 
+    "type": "notice",
+    "onebot12_raw_type": "notice",
     "detail_type": "group_member_decrease",
     "self": {"user_id": "bot-id"},
     "group_id": "group-id",
@@ -131,6 +182,7 @@ OneBot12适配器完全遵循OneBot12标准，事件格式无需转换，直接�
 {
     "id": "event-id",
     "type": "request",
+    "onebot12_raw_type": "request",
     "detail_type": "friend",
     "self": {"user_id": "bot-id"},
     "user_id": "user-id",
@@ -143,6 +195,7 @@ OneBot12适配器完全遵循OneBot12标准，事件格式无需转换，直接�
 {
     "id": "event-id",
     "type": "request",
+    "onebot12_raw_type": "request",
     "detail_type": "group",
     "self": {"user_id": "bot-id"},
     "group_id": "group-id",
@@ -161,6 +214,7 @@ OneBot12适配器完全遵循OneBot12标准，事件格式无需转换，直接�
 {
     "id": "event-id",
     "type": "meta_event",
+    "onebot12_raw_type": "meta_event",
     "detail_type": "lifecycle",
     "self": {"user_id": "bot-id"},
     "sub_type": "enable",
@@ -171,6 +225,7 @@ OneBot12适配器完全遵循OneBot12标准，事件格式无需转换，直接�
 {
     "id": "event-id",
     "type": "meta_event",
+    "onebot12_raw_type": "meta_event",
     "detail_type": "heartbeat",
     "self": {"user_id": "bot-id"},
     "interval": 5000,
@@ -318,6 +373,7 @@ OneBot12适配器采用异步非阻塞设计：
 1. 网络连接异常自动重连（支持每个账户独立重连，间隔30秒）
 2. API调用超时处理（固定30秒超时）
 3. 消息发送失败自动重试（最多3次重试）
+4. 不支持的方法调用会返回友好的文本提示
 
 ## 事件处理增强
 
@@ -326,6 +382,7 @@ OneBot12适配器采用异步非阻塞设计：
 ```python
 {
     "type": "message",
+    "onebot12_raw_type": "message",  // 原始事件类型
     "detail_type": "private",
     "self": {"user_id": "123456"},  // 发送事件的账户ID（标准字段）
     "platform": "onebot12",
@@ -388,3 +445,4 @@ OneBot12使用标准化的消息段格式：
 3. **消息发送**: 使用合适的消息类型，避免发送不支持的消息
 4. **连接监控**: 定期检查连接状态，确保服务可用性
 5. **性能优化**: 批量发送时使用Batch方法，减少网络开销
+6. **方法调用**: 推荐使用标准的大驼峰命名（如 `.Text()`），但也支持小写形式以兼容不同编程风格(这种方式可能会不兼容旧版本)

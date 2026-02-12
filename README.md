@@ -13,6 +13,8 @@ OneBot12Adapter 是基于 [ErisPulse](https://github.com/ErisPulse/ErisPulse/) �
 - **异步处理** - 全异步设计，支持高并发操作
 - **自动重连** - 网络异常时自动重连机制
 - **标准化响应** - 统一的API响应格式
+- **大小写不敏感** - 所有发送方法支持大小写不敏感调用
+- **智能错误提示** - 不支持的方法调用会返回友好的文本提示
 
 ---
 
@@ -132,6 +134,12 @@ with open("local_image.png", "rb") as f:
 await onebot12.Send.To("user", 123456).Audio("http://example.com/audio.ogg")
 ```
 
+#### 语音消息（兼容OneBot11）
+```python
+# Voice 是 Audio 的别名，两者完全等价
+await onebot12.Send.To("user", 123456).Voice("http://example.com/voice.ogg")
+```
+
 #### 视频消息
 ```python
 await onebot12.Send.To("user", 123456).Video("http://example.com/video.mp4")
@@ -149,6 +157,9 @@ await onebot12.Send.To("group", 123456).At(789012).At(789013).Text("大家你好
 
 # @全体成员
 await onebot12.Send.To("group", 123456).AtAll().Text("全体通知！")
+
+# 大小写不敏感调用
+await onebot12.Send.To("group", 123456).at(789012).atAll().text("全体通知！")
 ```
 
 #### 回复消息
@@ -237,6 +248,37 @@ new_content = [
 await onebot12.Send.To("group", 123456).Edit("message_id_123", new_content)
 ```
 
+### 链式修饰方法（支持链式调用）
+
+| 方法名 | 参数说明 | 返回值 | 用途 |
+|--------|----------|--------|------|
+| `.At(user_id: str/int)` | @用户ID | `self` | 群聊@功能（可多次调用） |
+| `.AtAll()` | @全体成员 | `self` | 群聊@全体功能 |
+| `.Reply(message_id: str/int)` | 回复消息ID | `self` | 消息回复功能 |
+
+> **链式调用示例**：`Send.To("group", 123456).At(789).Reply("msg123").Text("文本")`
+
+### 方法名映射表
+
+所有方法支持大小写不敏感调用，适配器会自动映射到标准方法名：
+
+| 小写方法名 | 标准方法名 |
+|-----------|-----------|
+| text | Text |
+| image | Image |
+| audio | Audio |
+| voice | Audio |
+| video | Video |
+| location | Location |
+| sticker | Sticker |
+| recall | Recall |
+| edit | Edit |
+| batch | Batch |
+| raw_ob12 | Raw_ob12 |
+| at | At |
+| atall | AtAll |
+| reply | Reply |
+
 ---
 
 ## API 调用方式
@@ -324,13 +366,14 @@ async def handle_meta_event(event):
 
 ### 事件数据结构
 
-OneBot12适配器直接处理标准格式的OneBot12事件，无需转换：
+OneBot12适配器直接处理标准格式的OneBot12事件，无需转换。每个事件都会包含 `onebot12_raw_type` 字段，保留原始事件类型：
 
 ```python
 # 私聊消息事件示例
 {
     "id": "event-uuid",
     "type": "message",
+    "onebot12_raw_type": "message",  # 原始事件类型
     "detail_type": "private", 
     "self": {"user_id": "bot-id"},
     "user_id": "user-id",
@@ -343,6 +386,7 @@ OneBot12适配器直接处理标准格式的OneBot12事件，无需转换：
 {
     "id": "event-uuid",
     "type": "message",
+    "onebot12_raw_type": "message",  # 原始事件类型
     "detail_type": "group",
     "self": {"user_id": "bot-id"},
     "user_id": "user-id", 
@@ -386,32 +430,36 @@ if "test" in accounts:
 
 ---
 
-## 支持的消息类型及对应方法
+## API响应标准
 
-### 消息发送方法
+适配器遵循 ErisPulse 标准化返回规范：
 
-| 方法名 | 参数说明 | 返回值 | 用途 |
-|--------|----------|--------|------|
-| `.Text(text: str)` | 发送纯文本消息 | `asyncio.Task` | 基础消息类型 |
-| `.Image(file: str/bytes, filename: str)` | 发送图片消息 | `asyncio.Task` | 支持URL、Base64或bytes |
-| `.Audio(file: str/bytes, filename: str)` | 发送音频消息 | `asyncio.Task` | 支持标准音频格式 |
-| `.Video(file: str/bytes, filename: str)` | 发送视频消息 | `asyncio.Task` | 支持标准视频格式 |
-| `.Sticker(file_id: str)` | 发送表情包/贴纸 | `asyncio.Task` | 表情包功能 |
-| `.Location(lat: float, lon: float, title: str, content: str)` | 发送位置 | `asyncio.Task` | 位置分享 |
-| `.Raw_ob12(message: Dict/List[Dict], **kwargs)` | 发送OneBot12原始格式消息 | `asyncio.Task` | 自定义消息内容 |
-| `.Recall(message_id: str/int)` | 撤回指定消息 | `asyncio.Task` | 消息管理 |
-| `.Edit(message_id: str/int, content: Union[str, List[Dict]])` | 编辑消息 | `asyncio.Task` | 消息编辑 |
-| `.Batch(target_ids: List[str], message: Union[str, List[Dict]], target_type: str)` | 批量发送消息 | `List[Task]` | 群发功能 |
+```python
+# 成功响应
+{
+    "status": "ok",              # 必须：执行状态
+    "retcode": 0,                # 必须：返回码（0表示成功）
+    "data": {                     # 必须：响应数据
+        "message_id": "123456",
+        "time": 1632847927.599013
+    },
+    "message_id": "123456",       # 必须：消息ID（无则为空字符串）
+    "message": "",                # 必须：错误信息（成功时为空）
+    "echo": "1234",               # 可选：原样返回请求中的echo
+    "onebot12_raw": {...}        # 可选：原始响应数据
+}
 
-### 链式修饰方法（支持链式调用）
-
-| 方法名 | 参数说明 | 返回值 | 用途 |
-|--------|----------|--------|------|
-| `.At(user_id: str/int)` | @用户ID | `self` | 群聊@功能（可多次调用） |
-| `.AtAll()` | @全体成员 | `self` | 群聊@全体功能 |
-| `.Reply(message_id: str/int)` | 回复消息ID | `self` | 消息回复功能 |
-
-> **链式调用示例**：`Send.To("group", 123456).At(789).Reply("msg123").Text("文本")`
+# 失败响应
+{
+    "status": "failed",           # 必须：执行状态
+    "retcode": 10003,            # 必须：返回码（非0表示失败）
+    "data": None,                # 必须：失败时为null
+    "message_id": "",            # 必须：失败时为空字符串
+    "message": "缺少必要参数",    # 必须：错误描述
+    "echo": "1234",              # 可选：原样返回请求中的echo
+    "onebot12_raw": {...}        # 可选：原始响应数据
+}
+```
 
 ---
 
@@ -442,6 +490,7 @@ onebot12.accounts["test"].enabled = False
 2. **API调用超时处理** - 固定30秒超时机制
 3. **消息发送失败重试** - 最多3次自动重试
 4. **标准化错误响应** - 统一的错误格式和状态码
+5. **不支持的调用提示** - 调用不存在的方法会返回友好的文本提示
 
 ---
 
@@ -451,6 +500,8 @@ onebot12.accounts["test"].enabled = False
 2. 对于二进制内容（如图片、音频等），支持直接传入 bytes 数据
 3. 批量发送时建议适当控制并发数量，避免API限制
 4. 长时间运行的机器人建议监控连接状态，确保服务可用性
+5. 推荐使用标准的大驼峰命名（如 `.Text()`），但也支持小写形式
+6. 利用 `onebot12_raw_type` 字段进行事件追溯和调试
 
 ---
 
