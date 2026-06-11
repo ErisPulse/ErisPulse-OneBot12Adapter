@@ -6,7 +6,7 @@ OneBot12Adapter 是基于 OneBot V12 协议构建的适配器，作为 ErisPulse
 
 ## 文档信息
 
-- 对应模块版本: 1.0.0
+- 对应模块版本: 4.0.0
 - 维护者: ErisPulse
 - 协议版本: OneBot V12
 
