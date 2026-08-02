@@ -1,4 +1,228 @@
-# ErisPulse OneBot12 适配器
+<div align="center">
+
+<img src=".github/assets/ErisPulseLogo.png" width="180" alt="ErisPulse OneBot12Adapter" />
+
+# ErisPulse OneBot12Adapter
+
+**OneBot v12 baseline protocol adapter — multi-account, Server/Client dual mode.**
+
+A OneBot V12 baseline protocol adapter for the ErisPulse framework. It transparently passes through standard-format events, runs multiple accounts simultaneously, and supports both Server (passive) and Client (active) WebSocket modes.
+
+<p>
+  <a href="https://pypi.org/project/ErisPulse-OneBot12Adapter/"><img src="https://img.shields.io/pypi/v/ErisPulse-OneBot12Adapter?style=for-the-badge&logo=pypi&logoColor=white" alt="PyPI"></a>
+  <a href="https://pypi.org/project/ErisPulse-OneBot12Adapter/"><img src="https://img.shields.io/badge/Python-3.10+-FFD43B?style=for-the-badge&logo=python&logoColor=blue" alt="Python"></a>
+  <a href="./LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue?style=for-the-badge" alt="License"></a>
+  <a href="https://github.com/ErisPulse/ErisPulse-OneBot12Adapter"><img src="https://img.shields.io/github/stars/ErisPulse/ErisPulse-OneBot12Adapter?style=for-the-badge&logo=github&color=brightgreen" alt="Stars"></a>
+  <a href="https://pepy.tech/project/ErisPulse-OneBot12Adapter"><img src="https://img.shields.io/pepy/dt/ErisPulse-OneBot12Adapter?style=for-the-badge&color=blue" alt="Downloads"></a>
+  <a href="https://github.com/ErisPulse/ErisPulse"><img src="https://img.shields.io/badge/Powered_by-ErisPulse-FF6B9D?style=for-the-badge&logo=bookstack&logoColor=white" alt="ErisPulse"></a>
+</p>
+
+[English](#english) | [简体中文](#中文)
+
+</div>
+
+---
+
+<a id="english"></a>
+
+## English
+
+A OneBot V12 baseline protocol adapter for the [ErisPulse](https://github.com/ErisPulse/ErisPulse/) framework, supporting multi-account and Server/Client dual mode operation.
+
+### Installation
+
+```bash
+epsdk install OneBot12Adapter
+```
+
+### Configuration
+
+Add to `config/config.toml`:
+
+```toml
+[OneBotv12_Adapter.accounts.main]
+bot_id = "Bot ID"
+mode = "server"
+server_path = "/onebot12"
+server_token = ""
+enabled = true
+
+# Client mode example
+[OneBotv12_Adapter.accounts.backup]
+bot_id = "Another Bot ID"
+mode = "client"
+client_url = "ws://127.0.0.1:3002"
+client_token = ""
+enabled = true
+```
+
+#### Configuration Fields
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `bot_id` | string | Yes | Bot ID, used for SDK routing |
+| `mode` | string | No | Run mode: `server` (passive) or `client` (active), default `server` |
+| `server_path` | string | No | Server mode WS path, default `/onebot12` |
+| `server_token` | string | No | Server mode authentication Token |
+| `client_url` | string | No | Client mode WS address, default `ws://127.0.0.1:3001` |
+| `client_token` | string | No | Client mode authentication Token |
+| `enabled` | bool | No | Whether to enable (default true) |
+| `platform` | string | No | Platform identifier, default `onebot12` |
+| `implementation` | string | No | Implementation identifier (e.g., `go-cqhttp`) |
+
+### Quick Start
+
+```python
+from ErisPulse import sdk
+from ErisPulse.Core.Event import command, message
+
+@command("hello")
+async def hello_handler(event):
+    await event.reply("Hello from OneBot12!")
+
+async def main():
+    await sdk.run(keep_running=True)
+
+if __name__ == "__main__":
+    import asyncio
+    asyncio.run(main())
+```
+
+### Sending Messages
+
+```python
+onebot12 = sdk.adapter.get("onebot12")
+
+# Text messages
+await onebot12.Send.To("user", "123456").Text("Hello!")
+await onebot12.Send.To("group", "789012").Text("Group message")
+
+# Media messages
+await onebot12.Send.To("user", "123456").Image("file_id_or_url")
+await onebot12.Send.To("user", "123456").Video("file_id_or_url")
+await onebot12.Send.To("user", "123456").Audio("file_id_or_url")
+
+# Send bytes
+with open("image.png", "rb") as f:
+    await onebot12.Send.To("user", "123456").Image(f.read())
+
+# Location
+await onebot12.Send.To("group", "789012").Location(39.9042, 116.4074, title="Beijing")
+```
+
+#### Chain Modifiers
+
+```python
+# @user
+await onebot12.Send.To("group", "789012").At("123456").Text("Hello!")
+
+# @everyone
+await onebot12.Send.To("group", "789012").AtAll().Text("Announcement!")
+
+# Reply to message
+await onebot12.Send.To("group", "789012").Reply("msg_id").Text("Reply content")
+
+# Combined usage
+await onebot12.Send.To("group", "789012").Reply("msg_id").At("123456").Text("Reply and @mention")
+```
+
+#### Sending via a Specific Account
+
+```python
+# Use Using to specify the account
+await onebot12.Send.Using("backup").To("user", "123456").Text("From backup account")
+```
+
+#### Message Operations
+
+```python
+# Recall
+await onebot12.Send.To("group", "789012").Recall("message_id")
+
+# Edit
+await onebot12.Send.To("group", "789012").Edit("message_id", "New content")
+
+# Raw OB12 message segments
+await onebot12.Send.To("group", "789012").Raw_ob12([
+    {"type": "text", "data": {"text": "Hello"}},
+    {"type": "image", "data": {"file_id": "xxx"}}
+])
+```
+
+### Run Modes
+
+#### Server Mode (default)
+
+Starts a WS server waiting for OneBot12 implementation clients to connect. Suitable for scenarios where multiple clients connect to the same server.
+
+#### Client Mode
+
+Actively connects to a OneBot12 implementation. Supports automatic reconnection (30-second interval).
+
+### Event Handling
+
+The OneBot12 adapter passes through standard-format events directly, with no conversion needed. Use the ErisPulse standard event handlers:
+
+```python
+from ErisPulse.Core.Event import message, notice, request, meta
+
+@message.on_message()
+async def handle_message(event):
+    text = event.get_text()
+    user_id = event.get_user_id()
+    group_id = event.get_group_id()
+    await event.reply(f"Received: {text}")
+
+@notice.on_group_increase()
+async def handle_member_increase(event):
+    group_id = event.get_group_id()
+    user_id = event.get_user_id()
+    await event.reply(f"Welcome {user_id} to the group!")
+
+@request.on_friend_request()
+async def handle_friend_request(event):
+    user_id = event.get_user_id()
+    comment = event.get_comment()
+```
+
+#### Event Extension Fields
+
+All events automatically have a `onebot12_raw_type` field added to preserve the original event type.
+
+### API Calls
+
+```python
+# Direct API call
+resp = await onebot12.call_api(
+    "get_user_info",
+    _account_id="main",
+    user_id="123456"
+)
+
+# Get self info
+info = await onebot12.call_api("get_self_info", _account_id="main")
+```
+
+#### Response Format
+
+```python
+# Success
+{"status": "ok", "retcode": 0, "data": {...}, "message_id": "xxx", "message": ""}
+
+# Failure
+{"status": "failed", "retcode": 10003, "data": None, "message_id": "", "message": "Error description"}
+```
+
+### Reference Links
+
+- [ErisPulse main repository](https://github.com/ErisPulse/ErisPulse/)
+- [OneBot V12 protocol documentation](https://12.onebot.dev/)
+
+---
+
+<a id="中文"></a>
+
+## 中文
 
 基于 [ErisPulse](https://github.com/ErisPulse/ErisPulse/) 框架的 OneBot V12 基线协议适配器，支持多账号、Server/Client 双模式运行。
 
