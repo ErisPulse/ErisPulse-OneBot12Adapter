@@ -16,7 +16,7 @@ class OneBot12AccountConfig(BotAccountConfig):
         metadata={
             "description": "连接模式: server(被动) 或 client(主动)",
             "required": False,
-            "webui": {
+            "ui": {
                 "widget": "select",
                 "group": "connection",
                 "order": 2,
@@ -32,7 +32,7 @@ class OneBot12AccountConfig(BotAccountConfig):
         metadata={
             "description": "Server模式 WebSocket 路径",
             "required": False,
-            "webui": {"widget": "text", "group": "server", "order": 3},
+            "ui": {"widget": "text", "group": "server", "order": 3},
         },
     )
     server_token: Optional[str] = field(
@@ -41,7 +41,7 @@ class OneBot12AccountConfig(BotAccountConfig):
             "description": "Server模式认证Token",
             "required": False,
             "secret": True,
-            "webui": {"widget": "password", "group": "server", "order": 4},
+            "ui": {"widget": "password", "group": "server", "order": 4},
         },
     )
     client_url: Optional[str] = field(
@@ -49,7 +49,7 @@ class OneBot12AccountConfig(BotAccountConfig):
         metadata={
             "description": "Client模式 WebSocket 地址",
             "required": False,
-            "webui": {"widget": "text", "group": "client", "order": 5},
+            "ui": {"widget": "text", "group": "client", "order": 5},
         },
     )
     client_token: Optional[str] = field(
@@ -58,7 +58,7 @@ class OneBot12AccountConfig(BotAccountConfig):
             "description": "Client模式认证Token",
             "required": False,
             "secret": True,
-            "webui": {"widget": "password", "group": "client", "order": 6},
+            "ui": {"widget": "password", "group": "client", "order": 6},
         },
     )
     implementation: Optional[str] = field(
@@ -66,17 +66,15 @@ class OneBot12AccountConfig(BotAccountConfig):
         metadata={
             "description": "实现标识（如 Lagrange, Napcat）",
             "required": False,
-            "webui": {"widget": "text", "group": "advanced", "order": 7},
+            "ui": {"widget": "text", "group": "advanced", "order": 7},
         },
     )
 
 
 class OneBot12Adapter(BaseAdapter):
-
     AccountConfigClass = OneBot12AccountConfig
 
     class Send(BaseAdapter.Send):
-
         def __init__(self, adapter, target_type=None, target_id=None, account_id=None):
             super().__init__(adapter, target_type, target_id, account_id)
 
@@ -87,6 +85,7 @@ class OneBot12Adapter(BaseAdapter):
             data = {}
             if isinstance(file, bytes):
                 import base64
+
                 data["file_base64"] = base64.b64encode(file).decode("utf-8")
                 data["file_name"] = filename
             else:
@@ -97,6 +96,7 @@ class OneBot12Adapter(BaseAdapter):
             data = {}
             if isinstance(file, bytes):
                 import base64
+
                 data["file_base64"] = base64.b64encode(file).decode("utf-8")
                 data["file_name"] = filename
             else:
@@ -110,13 +110,16 @@ class OneBot12Adapter(BaseAdapter):
             data = {}
             if isinstance(file, bytes):
                 import base64
+
                 data["file_base64"] = base64.b64encode(file).decode("utf-8")
                 data["file_name"] = filename
             else:
                 data["file_id"] = file
             return self.Raw_ob12([{"type": "video", "data": data}])
 
-        def Location(self, latitude: float, longitude: float, title: str = "", content: str = ""):
+        def Location(
+            self, latitude: float, longitude: float, title: str = "", content: str = ""
+        ):
             data = {"latitude": latitude, "longitude": longitude}
             if title:
                 data["title"] = title
@@ -139,13 +142,16 @@ class OneBot12Adapter(BaseAdapter):
             target_id = kwargs.get("target_id") or ctx["target_id"]
             account_id = kwargs.get("account_id") or ctx.get("account_id")
             detail_type = (
-                "private" if target_type == "user"
-                else "group" if target_type == "group"
+                "private"
+                if target_type == "user"
+                else "group"
+                if target_type == "group"
                 else kwargs.get("detail_type")
             )
 
             extra_kwargs = {
-                k: v for k, v in kwargs.items()
+                k: v
+                for k, v in kwargs.items()
                 if k not in ("target_type", "target_id", "account_id", "detail_type")
             }
 
@@ -184,7 +190,12 @@ class OneBot12Adapter(BaseAdapter):
                 )
             )
 
-        def Batch(self, target_ids: List[str], message: Union[str, List[Dict]], target_type: str = "user"):
+        def Batch(
+            self,
+            target_ids: List[str],
+            message: Union[str, List[Dict]],
+            target_type: str = "user",
+        ):
             ctx = self.send_context
             tasks = []
             for target_id in target_ids:
@@ -239,8 +250,8 @@ class OneBot12Adapter(BaseAdapter):
             self.logger.warning(f"账户 {account_name} bot_id 变更: {old} → {self_id}")
 
     def _load_accounts(self) -> dict:
-        from ErisPulse.runtime.config_schema import dict_to_dataclass
         from ErisPulse.Core.config import config as config_mgr
+        from ErisPulse.runtime.config_schema import dict_to_dataclass
 
         key = "OneBotv12_Adapter.accounts"
         data = config_mgr.getConfig(key)
@@ -441,7 +452,9 @@ class OneBot12Adapter(BaseAdapter):
             )
         finally:
             try:
-                await self.emit_meta("disconnect", self._get_bot_id(account_name) if account else "")
+                await self.emit_meta(
+                    "disconnect", self._get_bot_id(account_name) if account else ""
+                )
             except Exception:
                 pass
             self.connections.pop(account_name, None)
@@ -454,7 +467,9 @@ class OneBot12Adapter(BaseAdapter):
                 return
 
             if "echo" in data:
-                future = self._api_response_futures.get(account_name, {}).get(data["echo"])
+                future = self._api_response_futures.get(account_name, {}).get(
+                    data["echo"]
+                )
                 if future and not future.done():
                     future.set_result(data)
                 return
@@ -499,7 +514,9 @@ class OneBot12Adapter(BaseAdapter):
 
         self.connections[account_name] = websocket
 
-        await self.emit_meta("connect", self._get_bot_id(account_name) if account else "")
+        await self.emit_meta(
+            "connect", self._get_bot_id(account_name) if account else ""
+        )
         if account and not self._get_bot_id(account_name):
             self._pending_connect_meta.add(account_name)
 
@@ -516,7 +533,9 @@ class OneBot12Adapter(BaseAdapter):
             )
         finally:
             try:
-                await self.emit_meta("disconnect", self._get_bot_id(account_name) if account else "")
+                await self.emit_meta(
+                    "disconnect", self._get_bot_id(account_name) if account else ""
+                )
             except Exception:
                 pass
             if account_name in self.connections:
