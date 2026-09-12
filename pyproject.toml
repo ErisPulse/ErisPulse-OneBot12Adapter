@@ -1,14 +1,18 @@
 [project]
 name = "ErisPulse-OneBot12Adapter"
-version = "4.1.0"
+version = "4.3.0"
 description = "ErisPulse的OneBotV12协议适配模块，基线协议适配器"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { file = "LICENSE" }
 authors = [ { name = "wsu2059q", email = "wsu2059@qq.com" } ]
 dependencies = [
-    
 ]
+
+# 框架为软依赖：适配器由 ErisPulse 框架加载运行，不声明硬依赖，
+# 避免 pip 解析时对框架版本做升级/降级调整。
+# 最低要求 ErisPulse>=2.7.1（Api DSL / spawn_background 等特性），
+# 运行时由适配器检测并打日志提示。
 
 keywords = [
     "erispulse",

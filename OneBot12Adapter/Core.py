@@ -4,25 +4,46 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Union
 
 from ErisPulse.Core import client, router
-from ErisPulse.Core.Bases.adapter import BaseAdapter
+from ErisPulse.Core.Bases import BaseConfig, BotAccountConfig
+from ErisPulse.Core.Bases.adapter import BaseAdapter, RequestDSL
 from ErisPulse.Core.Bases.websocket import WSMessage
-from ErisPulse.runtime.config_schema import BotAccountConfig
+
+from .i18n import OneBot12I18n
+
+try:
+    from ErisPulse.runtime.tasks import spawn_background
+except ImportError:  # pragma: no cover
+    spawn_background = None
+
+__version__ = "4.3.0"
+
+# 软依赖的框架最低版本（运行时检测，仅提示不强制）
+MIN_FRAMEWORK_VERSION = (2, 7, 1)
+
+
+@dataclass
+class OneBot12GlobalConfig(BaseConfig):
+    """OneBot12 适配器全局配置"""
+
+    pass
 
 
 @dataclass
 class OneBot12AccountConfig(BotAccountConfig):
+    """OneBot12 账户配置"""
+
     mode: str = field(
         default="server",
         metadata={
-            "description": "连接模式: server(被动) 或 client(主动)",
+            "description": {"i18n": "OneBotv12_Adapter.mode", "default": "连接模式: server(被动) 或 client(主动)"},
             "required": False,
             "ui": {
                 "widget": "select",
                 "group": "connection",
                 "order": 2,
                 "options": [
-                    {"label": "Server", "value": "server"},
-                    {"label": "Client", "value": "client"},
+                    {"label": {"i18n": "OneBotv12_Adapter.mode_server", "default": "Server"}, "value": "server"},
+                    {"label": {"i18n": "OneBotv12_Adapter.mode_client", "default": "Client"}, "value": "client"},
                 ],
             },
         },
@@ -30,7 +51,7 @@ class OneBot12AccountConfig(BotAccountConfig):
     server_path: Optional[str] = field(
         default="/onebot12",
         metadata={
-            "description": "Server模式 WebSocket 路径",
+            "description": {"i18n": "OneBotv12_Adapter.server_path", "default": "Server模式 WebSocket 路径"},
             "required": False,
             "ui": {"widget": "text", "group": "server", "order": 3},
         },
@@ -38,7 +59,7 @@ class OneBot12AccountConfig(BotAccountConfig):
     server_token: Optional[str] = field(
         default="",
         metadata={
-            "description": "Server模式认证Token",
+            "description": {"i18n": "OneBotv12_Adapter.server_token", "default": "Server模式认证Token"},
             "required": False,
             "secret": True,
             "ui": {"widget": "password", "group": "server", "order": 4},
@@ -47,7 +68,7 @@ class OneBot12AccountConfig(BotAccountConfig):
     client_url: Optional[str] = field(
         default="ws://127.0.0.1:3001",
         metadata={
-            "description": "Client模式 WebSocket 地址",
+            "description": {"i18n": "OneBotv12_Adapter.client_url", "default": "Client模式 WebSocket 地址"},
             "required": False,
             "ui": {"widget": "text", "group": "client", "order": 5},
         },
@@ -55,7 +76,7 @@ class OneBot12AccountConfig(BotAccountConfig):
     client_token: Optional[str] = field(
         default="",
         metadata={
-            "description": "Client模式认证Token",
+            "description": {"i18n": "OneBotv12_Adapter.client_token", "default": "Client模式认证Token"},
             "required": False,
             "secret": True,
             "ui": {"widget": "password", "group": "client", "order": 6},
@@ -64,19 +85,88 @@ class OneBot12AccountConfig(BotAccountConfig):
     implementation: Optional[str] = field(
         default="",
         metadata={
-            "description": "实现标识（如 Lagrange, Napcat）",
+            "description": {"i18n": "OneBotv12_Adapter.implementation", "default": "实现标识（如 Lagrange, Napcat）"},
             "required": False,
             "ui": {"widget": "text", "group": "advanced", "order": 7},
         },
     )
 
 
+# 分组显示名（WebUI 用）
+OneBot12GlobalConfig._schema_meta = {
+    "group_labels": {
+        "connection": {"i18n": "OneBotv12_Adapter.group_connection", "default": "连接设置"},
+        "server": {"i18n": "OneBotv12_Adapter.group_server", "default": "服务端模式"},
+        "client": {"i18n": "OneBotv12_Adapter.group_client", "default": "客户端模式"},
+        "advanced": {"i18n": "OneBotv12_Adapter.group_advanced", "default": "高级设置"},
+    }
+}
+
+
 class OneBot12Adapter(BaseAdapter):
+    """
+    OneBot12 协议适配器
+
+    作为 ErisPulse 框架的基线协议适配器，完全遵循 OneBot v12 标准。
+
+    {!--< tips >!--}
+    1. 支持 WebSocket Server/Client 混合运行模式
+    2. 支持多账户并行运行，每个账户独立管理连接和状态
+    3. 自动识别 bot_id，event.reply() 无需手动指定账户
+    4. 提供完整的 ApiDSL 标准动作接口
+    {!--< /tips >!--}
+    """
+
+    ConfigClass = OneBot12GlobalConfig
     AccountConfigClass = OneBot12AccountConfig
+    I18nClass = OneBot12I18n
+
+    class EventMixin:
+        """
+        OneBot12 平台事件扩展方法
+
+        注册到事件包装类后，可在事件处理器中直接调用。
+        """
+
+        def get_raw_event(self) -> dict:
+            """获取 OneBot12 原始事件数据（onebot12_raw）"""
+            return self.get("onebot12_raw", {}) or {}
+
+        def get_raw_type(self) -> str:
+            """获取原始事件类型（onebot12_raw_type）"""
+            return self.get("onebot12_raw_type", "") or ""
+
+        def get_implementation(self) -> str:
+            """获取 OneBot12 实现标识"""
+            raw = self.get_raw_event()
+            return raw.get("implementation", "") or ""
+
+    class Api(BaseAdapter.Api):
+        """
+        OneBot12 标准 API 动作实现（ApiDSL）
+
+        OneBot12 后端原生支持所有标准动作名，默认实现直接委托给 call_api。
+
+        {!--< tips >!--}
+        1. 所有标准动作（get_self_info/get_user_info/get_group_info 等）由后端原生支持
+        2. 平台扩展动作通过 call("action_name", ...) 直接调用
+        3. 不支持的动作由后端返回错误，透传即可
+        {!--< /tips >!--}
+        """
+
+        pass
 
     class Send(BaseAdapter.Send):
-        def __init__(self, adapter, target_type=None, target_id=None, account_id=None):
-            super().__init__(adapter, target_type, target_id, account_id)
+        """
+        OneBot12 消息发送 DSL
+
+        {!--< tips >!--}
+        1. 支持文本、图片、音频、视频、文件等多种消息类型
+        2. 支持消息撤回和编辑
+        3. 支持批量发送
+        4. 支持位置和贴纸消息
+        {!--< /tips >!--}
+        """
 
         def Text(self, text: str):
             return self.Raw_ob12([{"type": "text", "data": {"text": text}}])
@@ -137,42 +227,24 @@ class OneBot12Adapter(BaseAdapter):
             segments = self._apply_modifiers(message)
             self._reset_modifiers()
 
-            ctx = self.send_context
-            target_type = kwargs.get("target_type") or ctx["target_type"]
-            target_id = kwargs.get("target_id") or ctx["target_id"]
-            account_id = kwargs.get("account_id") or ctx.get("account_id")
-            detail_type = (
-                "private"
-                if target_type == "user"
-                else "group"
-                if target_type == "group"
-                else kwargs.get("detail_type")
-            )
-
-            extra_kwargs = {
-                k: v
-                for k, v in kwargs.items()
-                if k not in ("target_type", "target_id", "account_id", "detail_type")
-            }
-
-            return asyncio.create_task(
-                self._adapter.call_api(
+            async def _do_send():
+                return await self._adapter.call_api(
                     endpoint="send_message",
-                    _account_id=account_id,
-                    detail_type=detail_type,
-                    user_id=target_id if target_type == "user" else None,
-                    group_id=target_id if target_type == "group" else None,
+                    _account_id=self._account_id,
+                    detail_type="private" if self._target_type == "user" else "group",
+                    user_id=self._target_id if self._target_type == "user" else None,
+                    group_id=self._target_id if self._target_type == "group" else None,
                     content=segments,
-                    **extra_kwargs,
+                    **kwargs,
                 )
-            )
+
+            return asyncio.create_task(_do_send())
 
         def Recall(self, message_id: Union[str, int]):
-            ctx = self.send_context
             return asyncio.create_task(
                 self._adapter.call_api(
                     endpoint="delete_message",
-                    _account_id=ctx.get("account_id"),
+                    _account_id=self._account_id,
                     message_id=str(message_id),
                 )
             )
@@ -180,11 +252,10 @@ class OneBot12Adapter(BaseAdapter):
         def Edit(self, message_id: Union[str, int], content: Union[str, List[Dict]]):
             if isinstance(content, str):
                 content = [{"type": "text", "data": {"text": content}}]
-            ctx = self.send_context
             return asyncio.create_task(
                 self._adapter.call_api(
                     endpoint="edit_message",
-                    _account_id=ctx.get("account_id"),
+                    _account_id=self._account_id,
                     message_id=str(message_id),
                     content=content,
                 )
@@ -196,13 +267,12 @@ class OneBot12Adapter(BaseAdapter):
             message: Union[str, List[Dict]],
             target_type: str = "user",
         ):
-            ctx = self.send_context
             tasks = []
             for target_id in target_ids:
                 if isinstance(message, str):
                     task = self._adapter.call_api(
                         endpoint="send_message",
-                        _account_id=ctx.get("account_id"),
+                        _account_id=self._account_id,
                         detail_type=target_type,
                         user_id=target_id if target_type == "user" else None,
                         group_id=target_id if target_type == "group" else None,
@@ -211,7 +281,7 @@ class OneBot12Adapter(BaseAdapter):
                 else:
                     task = self._adapter.call_api(
                         endpoint="send_message",
-                        _account_id=ctx.get("account_id"),
+                        _account_id=self._account_id,
                         detail_type=target_type,
                         user_id=target_id if target_type == "user" else None,
                         group_id=target_id if target_type == "group" else None,
@@ -219,6 +289,33 @@ class OneBot12Adapter(BaseAdapter):
                     )
                 tasks.append(task)
             return tasks
+
+    class Request(RequestDSL):
+        """
+        OneBot12 请求操作 DSL
+
+        用于处理好友请求和群请求（加群/邀请），提供接受和拒绝操作。
+        基于 OneBot12 标准的 handle_quick_request 动作。
+        """
+
+        async def _do_accept(self, **kwargs) -> dict[str, Any]:
+            return await self._do_action(approve=True, **kwargs)
+
+        async def _do_reject(self, **kwargs) -> dict[str, Any]:
+            return await self._do_action(approve=False, **kwargs)
+
+        async def _do_action(self, approve: bool, **kwargs) -> dict[str, Any]:
+            try:
+                result = await self._adapter.call_api(
+                    endpoint="handle_quick_request",
+                    _account_id=self._account_id,
+                    request_flag=self._request_id,
+                    approve=approve,
+                    **{k: v for k, v in kwargs.items() if not k.startswith("_")},
+                )
+                return result
+            except Exception as e:
+                return self._adapter.make_error(message=str(e))
 
     def __init__(self, sdk_ref=None):
         super().__init__(sdk_ref)
@@ -230,6 +327,39 @@ class OneBot12Adapter(BaseAdapter):
         self._running = False
         self.default_timeout = 30
         self.default_retry_interval = 30
+
+        self._check_framework_version()
+        self._get_logger().info(f"OneBot12Adapter v{__version__} 已加载")
+
+    @staticmethod
+    def _parse_version(version_str: str) -> tuple:
+        """解析版本号为可比较的三元组（忽略 dev/预发布后缀，如 2.8.0-dev.3 → (2, 8, 0)）"""
+        parts = []
+        for piece in str(version_str).split("."):
+            digits = "".join(ch for ch in piece if ch.isdigit())
+            parts.append(int(digits) if digits else 0)
+        while len(parts) < 3:
+            parts.append(0)
+        return tuple(parts[:3])
+
+    def _check_framework_version(self):
+        """软依赖检测：框架版本过低时打警告（不阻断加载）"""
+        try:
+            from importlib.metadata import version as _pkg_version
+
+            raw = _pkg_version("ErisPulse")
+        except Exception:
+            return
+        try:
+            if self._parse_version(raw) < MIN_FRAMEWORK_VERSION:
+                self._get_logger().warning(
+                    f"当前 ErisPulse 版本 {raw} 过低：OneBot12Adapter v{__version__} 需要 >= "
+                    f"{'.'.join(map(str, MIN_FRAMEWORK_VERSION))}"
+                    "（Api DSL / spawn_background 等特性），"
+                    "部分功能可能不可用，建议升级框架"
+                )
+        except Exception:
+            pass
 
     def _get_config_key(self) -> str:
         return "OneBotv12_Adapter"
@@ -248,44 +378,6 @@ class OneBot12Adapter(BaseAdapter):
         elif old != self_id:
             self._bot_ids[account_name] = self_id
             self.logger.warning(f"账户 {account_name} bot_id 变更: {old} → {self_id}")
-
-    def _load_accounts(self) -> dict:
-        from ErisPulse.Core.config import config as config_mgr
-        from ErisPulse.runtime.config_schema import dict_to_dataclass
-
-        key = "OneBotv12_Adapter.accounts"
-        data = config_mgr.getConfig(key)
-
-        if not data:
-            self.logger.info("未找到配置文件，创建默认账户配置")
-            default_config = {
-                "default": {
-                    "mode": "server",
-                    "server_path": "/onebot12",
-                    "server_token": "",
-                    "client_url": "ws://127.0.0.1:3001",
-                    "client_token": "",
-                    "enabled": True,
-                    "implementation": "",
-                }
-            }
-            try:
-                config_mgr.setConfig(key, default_config)
-            except Exception as e:
-                self.logger.error(f"保存默认账户配置失败: {str(e)}")
-            data = default_config
-
-        accounts = {}
-        for name, account_data in data.items():
-            if not isinstance(account_data, dict):
-                continue
-
-            instance = dict_to_dataclass(OneBot12AccountConfig, account_data)
-            instance.name = name
-            accounts[name] = instance
-
-        self.logger.info(f"OneBot12适配器初始化完成，共加载 {len(accounts)} 个账户")
-        return accounts
 
     async def call_api(self, endpoint: str, _account_id: str = None, **params):
         account_name, account = self._resolve_account(_account_id)
@@ -581,7 +673,7 @@ class OneBot12Adapter(BaseAdapter):
                     return handler
 
                 router.register_websocket(
-                    f"onebot12_{account_name}",
+                    f"{self._platform}_{account_name}",
                     path,
                     make_ws_handler(account_name),
                     auth_handler=make_auth_handler(account_name),
@@ -608,8 +700,10 @@ class OneBot12Adapter(BaseAdapter):
             self.logger.info(
                 f"启动Client模式账户: {account_name} (bot_id: {self._bot_id_display(account_name)})"
             )
-            self.reconnect_tasks[account_name] = asyncio.create_task(
-                self.connect(account_name)
+            coro = self.connect(account_name)
+            # 生命周期任务使用 spawn_background（owner 归属，shutdown 自动回收）
+            self.reconnect_tasks[account_name] = (
+                spawn_background(coro) if spawn_background is not None else asyncio.create_task(coro)
             )
 
         enabled_count = len(server_accounts) + len(client_accounts)
