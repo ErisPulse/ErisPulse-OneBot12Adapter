@@ -15,7 +15,7 @@ try:
 except ImportError:  # pragma: no cover
     spawn_background = None
 
-__version__ = "4.4.0"
+__version__ = "4.5.0"
 
 # 软依赖的框架最低版本（运行时检测，仅提示不强制）
 MIN_FRAMEWORK_VERSION = (2, 7, 1)
@@ -79,7 +79,12 @@ class OneBot12AccountConfig(BotAccountConfig):
         metadata={
             "description": {"i18n": "OneBotv12_Adapter.server_path", "default": "Server模式 WebSocket 路径"},
             "required": False,
-            "ui": {"widget": "text", "group": "server", "order": 3},
+            "ui": {
+                "widget": "text",
+                "group": "server",
+                "order": 3,
+                "show_if": {"field": "mode", "op": "eq", "value": "server"},
+            },
         },
     )
     server_token: Optional[str] = field(
@@ -88,7 +93,12 @@ class OneBot12AccountConfig(BotAccountConfig):
             "description": {"i18n": "OneBotv12_Adapter.server_token", "default": "Server模式认证Token"},
             "required": False,
             "secret": True,
-            "ui": {"widget": "password", "group": "server", "order": 4},
+            "ui": {
+                "widget": "password",
+                "group": "server",
+                "order": 4,
+                "show_if": {"field": "mode", "op": "eq", "value": "server"},
+            },
         },
     )
     client_url: Optional[str] = field(
@@ -96,7 +106,12 @@ class OneBot12AccountConfig(BotAccountConfig):
         metadata={
             "description": {"i18n": "OneBotv12_Adapter.client_url", "default": "Client模式 WebSocket 地址"},
             "required": False,
-            "ui": {"widget": "text", "group": "client", "order": 5},
+            "ui": {
+                "widget": "text",
+                "group": "client",
+                "order": 5,
+                "show_if": {"field": "mode", "op": "eq", "value": "client"},
+            },
         },
     )
     client_token: Optional[str] = field(
@@ -105,7 +120,12 @@ class OneBot12AccountConfig(BotAccountConfig):
             "description": {"i18n": "OneBotv12_Adapter.client_token", "default": "Client模式认证Token"},
             "required": False,
             "secret": True,
-            "ui": {"widget": "password", "group": "client", "order": 6},
+            "ui": {
+                "widget": "password",
+                "group": "client",
+                "order": 6,
+                "show_if": {"field": "mode", "op": "eq", "value": "client"},
+            },
         },
     )
     implementation: Optional[str] = field(
