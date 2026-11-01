@@ -31,6 +31,49 @@ def _forward_node_text(node: Dict) -> str:
     )
 
 
+def _json_card_text(data: Dict) -> str:
+    """从 json 消息段的 data 字段提取可读文本（坑 4）。
+
+    OneBot12 的 json 卡片没有统一 schema：常见来源（QQ 小程序/分享卡、
+    音乐/视频分享、链接卡片）把标题放在 title/prompt/preview/desc/text/
+    content 等字段。按优先级取首个非空值拼成一行摘要；解析不出时保留
+    长度线索（如 [json 卡片 · 386 字符]），绝不抛异常——卡片段解析失败
+    不能拖垮整条消息。
+    """
+    if not isinstance(data, dict):
+        return ""
+    payload = data.get("data")
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except Exception:
+            payload = {"text": payload}
+    if not isinstance(payload, dict):
+        return ""
+    # 部分实现把真实内容再包一层 meta/data
+    for wrapper_key in ("meta", "data"):
+        inner = payload.get(wrapper_key)
+        if isinstance(inner, dict) and not any(
+            payload.get(k) for k in ("title", "prompt", "desc", "preview", "text")
+        ):
+            payload = {**inner, **payload}
+    parts = []
+    for key in ("title", "prompt", "desc", "description", "preview", "text", "content", "shareOrigin", "appName"):
+        value = payload.get(key)
+        if isinstance(value, dict):
+            value = value.get("title") or value.get("text")
+        if isinstance(value, str) and value.strip():
+            text = " ".join(str(value).split())
+            if text and text not in parts:
+                parts.append(text)
+        if len(parts) >= 3:
+            break
+    if parts:
+        return "｜".join(parts)
+    raw = json.dumps(payload, ensure_ascii=False)
+    return f"[json 卡片 · {len(raw)} 字符]"
+
+
 def _forward_nodes_plain(nodes, separator: str = "\n") -> str:
     """合并转发节点降级纯文本：每条「昵称: 正文」（OB12 标准无 node 段与转发 API）"""
     lines = []
@@ -630,6 +673,22 @@ class OneBot12Adapter(BaseAdapter):
                     data["onebot12_raw_type"] = raw_type
 
                 data["platform"] = self._platform
+
+# 坑 4：json 卡片段生成可读 alt_message——框架 extract_text 只拼 text 段，
+# 不处理的话上层（触发判定/上下文/文本匹配）对卡片内容完全不可见
+                try:
+                    _msg_segments = data.get("message")
+                    if isinstance(_msg_segments, list):
+                        _card_texts = [
+                            _json_card_text(seg.get("data"))
+                            for seg in _msg_segments
+                            if isinstance(seg, dict) and seg.get("type") == "json"
+                        ]
+                        _readable = " ".join(t for t in _card_texts if t)
+                        if _readable and not str(data.get("alt_message") or "").strip():
+                            data["alt_message"] = _readable
+                except Exception:
+                    pass
 
                 if "self" not in data:
                     data["self"] = {}
