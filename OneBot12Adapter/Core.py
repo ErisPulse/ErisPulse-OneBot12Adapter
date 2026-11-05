@@ -1,5 +1,8 @@
 import asyncio
+import base64 as _base64
 import json
+import os
+import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Union
 
@@ -19,6 +22,24 @@ __version__ = "4.5.0"
 
 # 软依赖的框架最低版本（运行时检测，仅提示不强制）
 MIN_FRAMEWORK_VERSION = (2, 7, 1)
+
+# OneBot12 标准消息段类型与常见扩展段类型（仅用于未知段告警，透传不受限）
+_OB12_SEGMENT_TYPES = {
+    "text",
+    "mention",
+    "mention_all",
+    "reply",
+    "image",
+    "voice",
+    "audio",
+    "video",
+    "file",
+    "location",
+    "sticker",
+    "embed",
+    "markdown",
+    "forward",
+}
 
 
 def _forward_node_text(node: Dict) -> str:
@@ -260,41 +281,101 @@ class OneBot12Adapter(BaseAdapter):
         def Text(self, text: str):
             return self.Raw_ob12([{"type": "text", "data": {"text": text}}])
 
-        def Image(self, file: Union[str, bytes], filename: str = "image.png"):
-            data = {}
-            if isinstance(file, bytes):
-                import base64
+        @staticmethod
+        def _is_base64_blob(text: str) -> bool:
+            """判断裸字符串是否为 base64 数据（长度 ≥ 100、4 字符对齐、仅 base64 字符集）"""
+            if len(text) < 100 or len(text) % 4 != 0:
+                return False
+            return re.fullmatch(r"[A-Za-z0-9+/]+={0,2}", text) is not None
 
-                data["file_base64"] = base64.b64encode(file).decode("utf-8")
-                data["file_name"] = filename
+        async def _build_media_data(self, file) -> Optional[Dict]:
+            """将 file 归一为 OB12 文件段 data（file_base64 或 file_id）；下载或读取失败返回 None"""
+            if isinstance(file, bytes):
+                return {"file_base64": _base64.b64encode(file).decode("ascii")}
+            if not isinstance(file, str) or not file:
+                return None
+            if file.startswith(("http://", "https://")):
+                try:
+                    resp = await client.get(file, timeout=300)
+                    content = await resp.read()
+                except Exception:
+                    return None
+                return {"file_base64": _base64.b64encode(content).decode("ascii")}
+            if file.startswith("data:"):
+                payload = file.split(",", 1)[1] if "," in file else ""
+                return {"file_base64": payload}
+            if file.startswith("base64://"):
+                return {"file_base64": file[len("base64://"):]}
+            is_path = False
+            if file.startswith("file://"):
+                file = file[len("file://"):]
+                is_path = True
+            elif self._is_base64_blob(file):
+                return {"file_base64": file}
             else:
-                data["file_id"] = file
-            return self.Raw_ob12([{"type": "image", "data": data}])
+                is_path = "/" in file or "\\" in file or (len(file) > 2 and file[1] == ":")
+            if is_path:
+                try:
+                    with open(os.path.abspath(file), "rb") as f:
+                        content = f.read()
+                except Exception:
+                    return None
+                return {"file_base64": _base64.b64encode(content).decode("ascii")}
+            return {"file_id": file}
+
+        def _media_error(self, file) -> dict:
+            """返回媒体文件下载/读取失败的标准失败响应"""
+            name = file if isinstance(file, str) else f"<{type(file).__name__}>"
+            return self._adapter.make_error(
+                retcode=10003, message=f"文件下载或读取失败: {name}"
+            )
+
+        def Image(self, file: Union[str, bytes], filename: str = "image.png"):
+            async def _do_send():
+                data = await self._build_media_data(file)
+                if data is None:
+                    return self._media_error(file)
+                if "file_base64" in data:
+                    data["file_name"] = filename
+                return await self.Raw_ob12([{"type": "image", "data": data}])
+
+            return asyncio.create_task(_do_send())
 
         def Audio(self, file: Union[str, bytes], filename: str = "audio.ogg"):
-            data = {}
-            if isinstance(file, bytes):
-                import base64
+            async def _do_send():
+                data = await self._build_media_data(file)
+                if data is None:
+                    return self._media_error(file)
+                if "file_base64" in data:
+                    data["file_name"] = filename
+                return await self.Raw_ob12([{"type": "audio", "data": data}])
 
-                data["file_base64"] = base64.b64encode(file).decode("utf-8")
-                data["file_name"] = filename
-            else:
-                data["file_id"] = file
-            return self.Raw_ob12([{"type": "audio", "data": data}])
+            return asyncio.create_task(_do_send())
 
         def Voice(self, file: Union[str, bytes], filename: str = "voice.ogg"):
             return self.Audio(file, filename)
 
         def Video(self, file: Union[str, bytes], filename: str = "video.mp4"):
-            data = {}
-            if isinstance(file, bytes):
-                import base64
+            async def _do_send():
+                data = await self._build_media_data(file)
+                if data is None:
+                    return self._media_error(file)
+                if "file_base64" in data:
+                    data["file_name"] = filename
+                return await self.Raw_ob12([{"type": "video", "data": data}])
 
-                data["file_base64"] = base64.b64encode(file).decode("utf-8")
-                data["file_name"] = filename
-            else:
-                data["file_id"] = file
-            return self.Raw_ob12([{"type": "video", "data": data}])
+            return asyncio.create_task(_do_send())
+
+        def File(self, file: Union[str, bytes], filename: Optional[str] = None):
+            async def _do_send():
+                data = await self._build_media_data(file)
+                if data is None:
+                    return self._media_error(file)
+                if filename:
+                    data["filename"] = filename
+                return await self.Raw_ob12([{"type": "file", "data": data}])
+
+            return asyncio.create_task(_do_send())
 
         def Location(
             self, latitude: float, longitude: float, title: str = "", content: str = ""
@@ -313,13 +394,27 @@ class OneBot12Adapter(BaseAdapter):
             if isinstance(message, dict):
                 message = [message]
 
-            # node 段降级为纯文本原文输出（OB12 标准无 node 段，内容不丢失）
+            # node 段降级为「昵称: 正文」纯文本（OB12 标准无 node 段）
             message = [
                 {"type": "text", "data": {"text": _forward_nodes_plain(seg)}}
                 if isinstance(seg, dict) and seg.get("type") == "node"
                 else seg
                 for seg in message
             ]
+
+            # onebot12_ 前缀段剥前缀透传
+            message = [
+                {**seg, "type": str(seg.get("type"))[len("onebot12_"):]}
+                if isinstance(seg, dict) and str(seg.get("type")).startswith("onebot12_")
+                else seg
+                for seg in message
+            ]
+
+            for seg in message:
+                if isinstance(seg, dict) and str(seg.get("type")) not in _OB12_SEGMENT_TYPES:
+                    self._adapter.logger.warning(
+                        f"未知的消息段类型 {seg.get('type')!r}，原样透传给 OneBot 实现"
+                    )
 
             segments = self._apply_modifiers(message)
             self._reset_modifiers()
@@ -336,6 +431,12 @@ class OneBot12Adapter(BaseAdapter):
                 )
 
             return asyncio.create_task(_do_send())
+
+        def _reset_modifiers(self):
+            """重置 At/AtAll/Reply 修饰器状态"""
+            self._at_user_ids.clear()
+            self._reply_message_id = None
+            self._at_all = False
 
         def Recall(self, message_id: Union[str, int]):
             return asyncio.create_task(
