@@ -571,11 +571,13 @@ class OneBot12Adapter(BaseAdapter):
     def _update_bot_id(self, account_name: str, self_id: str):
         old = self._bot_ids.get(account_name)
         if not old:
-            self._bot_ids[account_name] = self_id
             self.logger.info(f"账户 {account_name} 自动识别 bot_id: {self_id}")
         elif old != self_id:
-            self._bot_ids[account_name] = self_id
             self.logger.warning(f"账户 {account_name} bot_id 变更: {old} → {self_id}")
+        self._bot_ids[account_name] = self_id
+        account = (self._accounts_data or {}).get(account_name)
+        if account is not None:
+            setattr(account, "bot_id", self_id)
 
     async def call_api(self, endpoint: str, _account_id: str = None, **params):
         account_name, account = self._resolve_account(_account_id)
