@@ -18,7 +18,7 @@ try:
 except ImportError:  # pragma: no cover
     spawn_background = None
 
-__version__ = "4.5.0"
+__version__ = "4.6.2"
 
 # 软依赖的框架最低版本（运行时检测，仅提示不强制）
 MIN_FRAMEWORK_VERSION = (2, 7, 1)
@@ -93,6 +93,13 @@ def _json_card_text(data: Dict) -> str:
         return "｜".join(parts)
     raw = json.dumps(payload, ensure_ascii=False)
     return f"[json 卡片 · {len(raw)} 字符]"
+
+
+def _ensure_request_id(data: Dict) -> None:
+    """保障 request 事件顶层 request_id：优先原生字段，OB11 风格实现用 flag；皆无则不合成"""
+    request_id = data.get("request_id") or data.get("flag")
+    if request_id:
+        data["request_id"] = str(request_id)
 
 
 def _forward_nodes_plain(nodes, separator: str = "\n") -> str:
@@ -388,7 +395,7 @@ class OneBot12Adapter(BaseAdapter):
             return self.Raw_ob12([{"type": "location", "data": data}])
 
         def Sticker(self, file_id: str):
-            return self.Raw_ob12([{"type": "sticker", "data": {"file_id": file_id}}])
+            return self.Raw_ob12([{"type": "onebot12_sticker", "data": {"file_id": file_id}}])
 
         def Raw_ob12(self, message: Union[Dict, List[Dict]], **kwargs):
             if isinstance(message, dict):
@@ -422,7 +429,7 @@ class OneBot12Adapter(BaseAdapter):
             async def _do_send():
                 return await self._adapter.call_api(
                     endpoint="send_message",
-                    _account_id=self._account_id,
+                    _account_id=self.send_context.get("account_id"),
                     detail_type="private" if self._target_type == "user" else "group",
                     user_id=self._target_id if self._target_type == "user" else None,
                     group_id=self._target_id if self._target_type == "group" else None,
@@ -442,7 +449,7 @@ class OneBot12Adapter(BaseAdapter):
             return asyncio.create_task(
                 self._adapter.call_api(
                     endpoint="delete_message",
-                    _account_id=self._account_id,
+                    _account_id=self.send_context.get("account_id"),
                     message_id=str(message_id),
                 )
             )
@@ -453,7 +460,7 @@ class OneBot12Adapter(BaseAdapter):
             return asyncio.create_task(
                 self._adapter.call_api(
                     endpoint="edit_message",
-                    _account_id=self._account_id,
+                    _account_id=self.send_context.get("account_id"),
                     message_id=str(message_id),
                     content=content,
                 )
@@ -470,7 +477,7 @@ class OneBot12Adapter(BaseAdapter):
                 if isinstance(message, str):
                     task = self._adapter.call_api(
                         endpoint="send_message",
-                        _account_id=self._account_id,
+                        _account_id=self.send_context.get("account_id"),
                         detail_type=target_type,
                         user_id=target_id if target_type == "user" else None,
                         group_id=target_id if target_type == "group" else None,
@@ -479,7 +486,7 @@ class OneBot12Adapter(BaseAdapter):
                 else:
                     task = self._adapter.call_api(
                         endpoint="send_message",
-                        _account_id=self._account_id,
+                        _account_id=self.send_context.get("account_id"),
                         detail_type=target_type,
                         user_id=target_id if target_type == "user" else None,
                         group_id=target_id if target_type == "group" else None,
@@ -506,7 +513,7 @@ class OneBot12Adapter(BaseAdapter):
             try:
                 result = await self._adapter.call_api(
                     endpoint="handle_quick_request",
-                    _account_id=self._account_id,
+                    _account_id=self._account_id or self.request_context.get("account_id"),
                     request_flag=self._request_id,
                     approve=approve,
                     **{k: v for k, v in kwargs.items() if not k.startswith("_")},
@@ -580,14 +587,16 @@ class OneBot12Adapter(BaseAdapter):
             setattr(account, "bot_id", self_id)
 
     async def call_api(self, endpoint: str, _account_id: str = None, **params):
-        account_name, account = self._resolve_account(_account_id)
+                # 标准字段 account_id 与旧名 _account_id 双兼容（ApiDSL.Using 传标准名）
+        account_id = params.pop("account_id", None) or _account_id
+        account_name, account = self._resolve_account(account_id)
 
         connection = self.connections.get(account_name)
         if not connection:
-            raise ConnectionError(f"账户 {account_name} 尚未连接")
+            return self.make_error(retcode=33001, message=f"账户 {account_name} 尚未连接")
 
         if hasattr(connection, "closed") and connection.closed:
-            raise ConnectionError(f"账户 {account_name} 的连接已关闭")
+            return self.make_error(retcode=33001, message=f"账户 {account_name} 的连接已关闭")
 
         if account_name not in self._api_response_futures:
             self._api_response_futures[account_name] = {}
@@ -772,10 +781,12 @@ class OneBot12Adapter(BaseAdapter):
                 raw_type = data.get("type", "")
 
                 data["onebot12_raw"] = dict(data)
-                if raw_type:
-                    data["onebot12_raw_type"] = raw_type
+                data["onebot12_raw_type"] = raw_type or ""
 
                 data["platform"] = self._platform
+
+                if raw_type == "request":
+                    _ensure_request_id(data)
 
 # 坑 4：json 卡片段生成可读 alt_message——框架 extract_text 只拼 text 段，
 # 不处理的话上层（触发判定/上下文/文本匹配）对卡片内容完全不可见
@@ -798,6 +809,7 @@ class OneBot12Adapter(BaseAdapter):
                 if not data.get("self", {}).get("user_id"):
                     data["self"]["user_id"] = self._get_bot_id(account_name)
                 data["self"]["platform"] = self._platform
+                data["self"]["account_id"] = account_name
 
                 event_self_id = data.get("self", {}).get("user_id", "")
                 if event_self_id:
